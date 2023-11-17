@@ -9,9 +9,10 @@
     :license: BSD, see LICENSE for details.
 """
 from __future__ import annotations
-
+import base64
 import codecs
 import errno
+import json
 import os
 import posixpath
 import re
@@ -19,6 +20,8 @@ from hashlib import sha1
 from subprocess import PIPE, Popen
 from tempfile import _get_default_tempdir
 import uuid
+import zlib
+
 
 import sphinx
 from docutils import nodes
@@ -76,6 +79,7 @@ class Mermaid(Directive):
         "align": align_spec,
         "caption": directives.unchanged,
         "zoom": directives.unchanged,
+        "editor_link": directives.unchanged,
     }
 
     def get_mm_code(self):
@@ -125,7 +129,6 @@ class Mermaid(Directive):
                     line=self.lineno,
                 )
             ]
-
         # Wrap the mermaid code into a code node.
         node = mermaid()
         node["code"] = mmcode
@@ -139,6 +142,8 @@ class Mermaid(Directive):
         if "zoom" in self.options:
             node["zoom"] = True
             node["zoom_id"] = f"id-{uuid.uuid4()}"
+        if "editor_link" in self.options:
+            node["editor_link"] = True
 
         caption = self.options.get("caption")
         if caption:
@@ -234,30 +239,66 @@ def _render_mm_html_raw(
     self, node, code, options, prefix="mermaid", imgcls=None, alt=None
 ):
     if "align" in node and "zoom_id" in node:
-        tag_template = """<div align="{align}" id="{zoom_id}" class="mermaid align-{align}">
+        tag_template = """<pre align="{align}" id="{zoom_id}" class="mermaid align-{align}">
             {code}
-        </div>
+        </pre>
         """
     elif "align" in node and "zoom_id" not in node:
-        tag_template = """<div align="{align}" class="mermaid align-{align}">
+        tag_template = """<pre align="{align}" class="mermaid align-{align}">
             {code}
-        </div>
+        </pre>
         """
     elif "align" not in node and "zoom_id" in node:
-        tag_template = """<div id="{zoom_id}" class="mermaid">
+        tag_template = """<pre id="{zoom_id}" class="mermaid">
             {code}
-        </div>
+        </pre>
         """
     else:
-        tag_template = """<div class="mermaid">
+        tag_template = """<pre class="mermaid">
             {code}
-        </div>"""
+        </pre>
+        """
 
     self.body.append(
-        tag_template.format(align=node.get("align"), zoom_id=node.get("zoom_id"), code=self.encode(code))
+        tag_template.format(
+            align=node.get("align"),
+            zoom_id=node.get("zoom_id"),
+            code=self.encode(code),
+        )
     )
+    if "editor_link" in node:
+        _editor_link = _generate_mermaid_editor_link(code)
+        editor_template = """<p align="{align}">
+        <a href="{editor_link}" class="mermaid-link source" target="_blank">Open Graph in Editor</a>
+        </p>"""
+        self.body.append(
+            editor_template.format(
+                editor_link=_editor_link,
+                align=node.get("align"),
+            )
+        )
     raise nodes.SkipNode
 
+def _generate_mermaid_editor_link(diagram_string):
+    # JSON structure for the Mermaid editor
+    mermaid_json = {
+        "code": diagram_string,
+        "mermaid": "{\n  \"theme\": \"default\"\n}",
+        "autoSync": True,
+        "updateDiagram": True
+    }
+
+    # Convert the JSON to a string
+    json_data = json.dumps(mermaid_json)
+
+    # Compress the JSON string using zlib
+    compressed_json_data = zlib.compress(json_data.encode())
+
+    # Encode the compressed data to base64
+    base64_encoded_compressed_json = base64.urlsafe_b64encode(compressed_json_data).decode()
+
+    # Construct the final URL
+    return f"https://mermaid-js.github.io/mermaid-live-editor/edit#pako:{base64_encoded_compressed_json}"
 
 def render_mm_html(self, node, code, options, prefix="mermaid", imgcls=None, alt=None):
 
@@ -299,7 +340,6 @@ def render_mm_html(self, node, code, options, prefix="mermaid", imgcls=None, alt
             self.body.append(f'<img src="{fname}" alt="{alt}" {imgcss}/>\n')
             if "align" in node:
                 self.body.append("</div>\n")
-
     raise nodes.SkipNode
 
 
@@ -419,11 +459,19 @@ def install_js(
     if not app.config.mermaid_version:
         _mermaid_js_url = None  # assume it is local
     elif app.config.mermaid_version == "latest":
-        _mermaid_js_url = "https://unpkg.com/mermaid/dist/mermaid.min.js"
+        _mermaid_js_url = "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs"
     else:
-        _mermaid_js_url = f"https://unpkg.com/mermaid@{app.config.mermaid_version}/dist/mermaid.min.js"
+        _mermaid_js_url = f"https://cdn.jsdelivr.net/npm/mermaid@{app.config.mermaid_version}/dist/mermaid.esm.min.mjs"
     if _mermaid_js_url:
-        app.add_js_file(_mermaid_js_url, priority=app.config.mermaid_js_priority)
+        # Configuration for Mermaid initialization
+        mermaid_init_script = (
+            f"import mermaid from '{_mermaid_js_url}';\n"
+            "let config = { startOnLoad: true };\n"
+            "mermaid.initialize(config);"
+        )
+
+        # Add the initialization script
+        app.add_js_file(None, body=mermaid_init_script, type="module", priority=app.config.mermaid_js_priority)
 
     if app.config.mermaid_init_js:
         # If mermaid is local the init-call must be placed after `html_js_files` which has a priority of 800.
@@ -434,7 +482,7 @@ def install_js(
 
     if app.config.mermaid_output_format == "raw":
         if app.config.mermaid_d3_zoom:
-            _d3_js_url = "https://unpkg.com/d3/dist/d3.min.js"
+            _d3_js_url = "https://cdn.jsdelivr.net/npm/d3/dist/d3.min.js"
             _d3_js_script = """
             window.addEventListener("load", function () {
               var svgs = d3.selectAll(".mermaid svg");
@@ -462,7 +510,7 @@ def install_js(
                     else:
                         _d3_selector += f", .mermaid#{_zoom_id} svg"
             if _d3_selector != "":
-                _d3_js_url = "https://unpkg.com/d3/dist/d3.min.js"
+                _d3_js_url = "https://cdn.jsdelivr.net/npm/d3/dist/d3.min.js"
                 _d3_js_script = f"""
                 window.addEventListener("load", function () {{
                   var svgs = d3.selectAll("{_d3_selector}");
@@ -500,9 +548,9 @@ def setup(app):
     app.add_config_value("mermaid_params", list(), "html")
     app.add_config_value("mermaid_verbose", False, "html")
     app.add_config_value("mermaid_sequence_config", False, "html")
-    
+
     # Starting in version 10, mermaid is an "ESM only" package
-    # thus it requires a different initialization code not yet supported. 
+    # thus it requires a different initialization code not yet supported.
     # So the current latest version supported is this
     # Discussion: https://github.com/mermaid-js/mermaid/discussions/4148
     app.add_config_value("mermaid_version", "10.2.0", "html")
