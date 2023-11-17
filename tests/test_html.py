@@ -92,3 +92,37 @@ def test_html_raw_from_markdown(index):
         </div>"""
         in index
     )
+
+@pytest.mark.sphinx("html", testroot="markdown")
+def test_html_link_to_editor(index):
+    assert (
+        '<script type="module">import mermaid from '
+        "'https://cdn.jsdelivr.net/npm/mermaid@10.2.0/dist/mermaid.esm.min.mjs';\n"
+        'let config = { startOnLoad: true };\n'
+        'mermaid.initialize(config);</script>\n'
+        '    <script>mermaid.initialize({startOnLoad:true});</script>\n'
+        in index
+    )
+    assert (
+        """
+        <a href="https://mermaid-js.github.io/mermaid-live-editor/edit#pako:eJxtjrEOwjAMRH_F8lx-oAMIxIBYWbOYxNBISVyCI1RV_XeSim7cZL2703lGK46xB4SqN78KJ8tnT89M0SRYNVJWb_1ISeEYvOV_xknuG14zu_1VhtTDhUMQaHcHg3yAMsMk5YAdYOQcybs2P7eyQR04sqnAoOMHlaAGTVpamIrKbUq2mpoLV1JGR7o9-8PLF2HHQ5k=" class="mermaid-link source" target="_blank">Open Graph in Editor</a>
+        """
+        in index
+    )
+
+@pytest.mark.sphinx("html", testroot="markdown")
+def test_html_link_to_editor_align(index):
+    assert (
+        '<script type="module">import mermaid from '
+        "'https://cdn.jsdelivr.net/npm/mermaid@10.2.0/dist/mermaid.esm.min.mjs';\n"
+        'let config = { startOnLoad: true };\n'
+        'mermaid.initialize(config);</script>\n'
+        '    <script>mermaid.initialize({startOnLoad:true});</script>\n'
+        in index
+    )
+    assert (
+        """<p align="center">
+        <a href="https://mermaid-js.github.io/mermaid-live-editor/edit#pako:eJxtjrEOwjAMRH_F8lx-oAMIxIBYWbOYxNBISVyCI1RV_XeSim7cZL2703lGK46xB4SqN78KJ8tnT89M0SRYNVJWb_1ISeEYvOV_xknuG14zu_1VhtTDhUMQaHcHg3yAMsMk5YAdYOQcybs2P7eyQR04sqnAoOMHlaAGTVpamIrKbUq2mpoLV1JGR7o9-8PLF2HHQ5k=" class="mermaid-link source" target="_blank">Open Graph in Editor</a>
+        </p>"""
+        in index
+    )
